@@ -39,11 +39,13 @@ OPENAI_IMAGE_MODEL=gpt-image-1
 # Optional
 # OPENAI_IMAGE_RATIO=16:9
 # OPENAI_IMAGE_ASPECT_RATIO=16:9
+# OPENAI_IMAGE_SIZE=1024x768
 # OPENAI_IMAGE_QUALITY=medium
 # OPENAI_IMAGE_STYLE=vivid
 ```
 
 > `OPENAI_IMAGE_RATIO` 與 `OPENAI_IMAGE_ASPECT_RATIO` 都可用，前者為推薦欄位。  
+> 若供應商忽略 `aspect_ratio`，可改用 `OPENAI_IMAGE_SIZE`（例如 `1024x768`）。  
 > 腳本預設會讀取 `/Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env`。
 
 3. 執行（直接傳入多個 prompt）
@@ -85,6 +87,7 @@ python scripts/generate_storyboard_images.py \
 ## 參數重點
 
 - `--aspect-ratio`：可覆蓋 `.env` 的比例設定（例如 `16:9`、`4:3`）
+- `--image-size` / `--size`：指定像素尺寸（例如 `1024x768`）；對只接受 `size` 的相容供應商特別有用
 - 若未提供比例，會使用模型/服務端預設尺寸
 
 ## 輸出

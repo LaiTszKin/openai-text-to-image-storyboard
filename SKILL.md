@@ -36,6 +36,7 @@ You can still override via `--env-file` when needed.
 - `OPENAI_IMAGE_MODEL` (optional, default `gpt-image-1`)
 - `OPENAI_IMAGE_RATIO` (optional, e.g. `16:9` / `4:3`; recommended)
 - `OPENAI_IMAGE_ASPECT_RATIO` (optional fallback alias)
+- `OPENAI_IMAGE_SIZE` (optional, e.g. `1024x768`, for providers that expect `size`)
 - `OPENAI_IMAGE_QUALITY` (optional)
 - `OPENAI_IMAGE_STYLE` (optional)
 
@@ -51,10 +52,11 @@ python /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/scripts/ge
   --project-dir /path/to/project \
   --env-file /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env \
   --content-name "1_小說章節名稱" \
-  --aspect-ratio 16:9 \
   --prompt "Cinematic night market alley, rain reflections, protagonist with umbrella, neon bokeh" \
   --prompt "Old library at dawn, warm dust particles, heroine opening a hidden book compartment"
 ```
+
+If the provider ignores `aspect_ratio`, pass `--image-size 1024x768` or set `OPENAI_IMAGE_SIZE=1024x768`.
 
 Use JSON prompt file:
 

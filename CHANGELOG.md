@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2026-02-14
+
+### Added
+- Added `--image-size`/`--size` CLI options and `OPENAI_IMAGE_SIZE` env support for providers that require explicit pixel size.
+- Added generated image dimension metadata (`width`, `height`) and optional `image_size` to `storyboard.json`.
+
+### Changed
+- Updated README, SKILL docs, and `.env.example` with size-based guidance when aspect-ratio controls are ignored by a provider.
+
+### Fixed
+- Added post-generation aspect-ratio mismatch detection and warning to highlight when providers ignore `aspect_ratio`.
+
 ## [0.1.0] - 2026-02-14
 
 ### Added

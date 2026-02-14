@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -51,6 +52,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--image-size",
+        "--size",
+        dest="image_size",
+        help=(
+            "Optional image size for OpenAI-compatible providers that expect size, "
+            "e.g. 1024x768 or 1024x1024 (or OPENAI_IMAGE_SIZE)."
+        ),
+    )
+    parser.add_argument(
         "--quality",
         help="Optional image quality parameter (or OPENAI_IMAGE_QUALITY)",
     )
@@ -84,6 +94,9 @@ def normalize_aspect_ratio(value: str | None) -> str | None:
         return None
     if not re.fullmatch(r"\d{1,3}:\d{1,3}", candidate):
         raise SystemExit("Invalid aspect ratio. Use format like 16:9 or 4:3.")
+    width, height = parse_ratio_pair(candidate)
+    if width <= 0 or height <= 0:
+        raise SystemExit("Invalid aspect ratio. Width and height must be positive integers.")
     return candidate
 
 
@@ -93,6 +106,91 @@ def first_nonempty_env(*names: str) -> str | None:
         if value is not None and value.strip():
             return value
     return None
+
+
+def parse_ratio_pair(value: str) -> tuple[int, int]:
+    left, right = value.split(":", 1)
+    return int(left), int(right)
+
+
+def normalize_image_size(value: str | None) -> str | None:
+    if value is None:
+        return None
+    candidate = value.strip().lower()
+    if not candidate:
+        return None
+    if not re.fullmatch(r"\d{2,5}x\d{2,5}", candidate):
+        raise SystemExit("Invalid image size. Use format like 1024x768.")
+    width_str, height_str = candidate.split("x", 1)
+    if int(width_str) <= 0 or int(height_str) <= 0:
+        raise SystemExit("Invalid image size. Width and height must be positive integers.")
+    return candidate
+
+
+def parse_image_dimensions(image_bytes: bytes) -> tuple[int, int] | None:
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n") and len(image_bytes) >= 24:
+        width = int.from_bytes(image_bytes[16:20], "big")
+        height = int.from_bytes(image_bytes[20:24], "big")
+        if width > 0 and height > 0:
+            return width, height
+
+    if image_bytes.startswith(b"\xFF\xD8"):
+        index = 2
+        while index + 1 < len(image_bytes):
+            while index < len(image_bytes) and image_bytes[index] != 0xFF:
+                index += 1
+            if index + 1 >= len(image_bytes):
+                break
+            marker = image_bytes[index + 1]
+            index += 2
+
+            if marker in {0xD8, 0xD9}:
+                continue
+            if marker == 0xDA:
+                break
+            if index + 2 > len(image_bytes):
+                break
+
+            segment_length = int.from_bytes(image_bytes[index : index + 2], "big")
+            if segment_length < 2 or index + segment_length > len(image_bytes):
+                break
+
+            if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+                if segment_length >= 7:
+                    height = int.from_bytes(image_bytes[index + 3 : index + 5], "big")
+                    width = int.from_bytes(image_bytes[index + 5 : index + 7], "big")
+                    if width > 0 and height > 0:
+                        return width, height
+
+            index += segment_length
+
+    return None
+
+
+def simplify_ratio(width: int, height: int) -> str:
+    factor = math.gcd(width, height)
+    return f"{width // factor}:{height // factor}"
+
+
+def is_aspect_ratio_mismatch(
+    dimensions: tuple[int, int],
+    requested_ratio: str,
+    tolerance: float = 0.05,
+) -> bool:
+    width, height = dimensions
+    req_width, req_height = parse_ratio_pair(requested_ratio)
+    diff = abs(width * req_height - height * req_width)
+    allowed = req_width * height * tolerance
+    return diff > allowed
+
+
+def suggest_size_for_ratio(requested_ratio: str) -> str:
+    req_width, req_height = parse_ratio_pair(requested_ratio)
+    base_width = 1024
+    suggested_height = max(2, int(round(base_width * req_height / req_width)))
+    if suggested_height % 2 != 0:
+        suggested_height += 1
+    return f"{base_width}x{suggested_height}"
 
 
 def unique_path(path: Path) -> Path:
@@ -241,6 +339,7 @@ def generate_image(
     image_model: str,
     prompt: str,
     aspect_ratio: str | None,
+    image_size: str | None,
     quality: str | None,
     style: str | None,
 ) -> tuple[bytes, str | None]:
@@ -250,6 +349,8 @@ def generate_image(
     }
     if aspect_ratio:
         payload["aspect_ratio"] = aspect_ratio
+    if image_size:
+        payload["size"] = image_size
     if quality:
         payload["quality"] = quality
     if style:
@@ -294,6 +395,9 @@ def main() -> int:
         if args.aspect_ratio is not None
         else first_nonempty_env("OPENAI_IMAGE_RATIO", "OPENAI_IMAGE_ASPECT_RATIO")
     )
+    image_size = normalize_image_size(
+        args.image_size if args.image_size is not None else os.getenv("OPENAI_IMAGE_SIZE")
+    )
     quality = args.quality if args.quality is not None else os.getenv("OPENAI_IMAGE_QUALITY")
     style = args.style if args.style is not None else os.getenv("OPENAI_IMAGE_STYLE")
 
@@ -315,10 +419,23 @@ def main() -> int:
             image_model=image_model,
             prompt=item["prompt"],
             aspect_ratio=aspect_ratio,
+            image_size=image_size,
             quality=quality,
             style=style,
         )
         image_path.write_bytes(image_bytes)
+        dimensions = parse_image_dimensions(image_bytes)
+
+        if aspect_ratio and dimensions and is_aspect_ratio_mismatch(dimensions, aspect_ratio):
+            actual_width, actual_height = dimensions
+            suggested_size = suggest_size_for_ratio(aspect_ratio)
+            print(
+                "[WARN] "
+                f"Requested aspect ratio {aspect_ratio}, but generated image is {actual_width}x{actual_height} "
+                f"(~{simplify_ratio(actual_width, actual_height)}). "
+                "The current model/provider may ignore aspect_ratio. "
+                f"Try --image-size {suggested_size} or set OPENAI_IMAGE_SIZE={suggested_size}."
+            )
 
         record: dict[str, Any] = {
             "index": index,
@@ -326,6 +443,9 @@ def main() -> int:
             "prompt": item["prompt"],
             "file": str(image_path),
         }
+        if dimensions:
+            record["width"] = dimensions[0]
+            record["height"] = dimensions[1]
         if revised_prompt:
             record["revised_prompt"] = revised_prompt
         records.append(record)
@@ -340,6 +460,8 @@ def main() -> int:
     }
     if aspect_ratio:
         summary["aspect_ratio"] = aspect_ratio
+    if image_size:
+        summary["image_size"] = image_size
     summary_path = output_dir / "storyboard.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[OK] Wrote plan to {summary_path}")
