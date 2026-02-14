@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
 import math
 import os
@@ -48,6 +49,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Image aspect ratio, e.g. 16:9 or 4:3 "
             "(or OPENAI_IMAGE_RATIO / OPENAI_IMAGE_ASPECT_RATIO). "
+            "If set, output is center-cropped to this ratio. "
             "If omitted, use model/API default size."
         ),
     )
@@ -191,6 +193,47 @@ def suggest_size_for_ratio(requested_ratio: str) -> str:
     if suggested_height % 2 != 0:
         suggested_height += 1
     return f"{base_width}x{suggested_height}"
+
+
+def center_crop_to_aspect_ratio(
+    image_bytes: bytes,
+    requested_ratio: str,
+) -> tuple[bytes, tuple[int, int], tuple[int, int], bool]:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Aspect-ratio crop requires Pillow. Install it with `pip install pillow`.") from exc
+
+    req_width, req_height = parse_ratio_pair(requested_ratio)
+    with Image.open(io.BytesIO(image_bytes)) as source:
+        source_width, source_height = source.size
+        scale = min(source_width // req_width, source_height // req_height)
+        if scale < 1:
+            raise RuntimeError(
+                f"Cannot crop {source_width}x{source_height} to aspect ratio {requested_ratio}."
+            )
+
+        target_width = req_width * scale
+        target_height = req_height * scale
+        source_size = (source_width, source_height)
+        target_size = (target_width, target_height)
+
+        if target_size == source_size:
+            return image_bytes, source_size, target_size, False
+
+        left = (source_width - target_width) // 2
+        top = (source_height - target_height) // 2
+        right = left + target_width
+        bottom = top + target_height
+
+        cropped = source.crop((left, top, right, bottom))
+        if cropped.mode not in {"RGB", "RGBA", "L", "LA", "P"}:
+            cropped = cropped.convert("RGB")
+
+        output = io.BytesIO()
+        # Output filename extension is .png, so write normalized PNG bytes.
+        cropped.save(output, format="PNG")
+        return output.getvalue(), source_size, target_size, True
 
 
 def unique_path(path: Path) -> Path:
@@ -423,19 +466,35 @@ def main() -> int:
             quality=quality,
             style=style,
         )
+        source_dimensions = parse_image_dimensions(image_bytes)
+        if aspect_ratio:
+            try:
+                image_bytes, crop_source, crop_target, crop_applied = center_crop_to_aspect_ratio(
+                    image_bytes=image_bytes,
+                    requested_ratio=aspect_ratio,
+                )
+                if crop_applied:
+                    print(
+                        "[INFO] "
+                        f"Applied center crop for aspect ratio {aspect_ratio}: "
+                        f"{crop_source[0]}x{crop_source[1]} -> {crop_target[0]}x{crop_target[1]}."
+                    )
+            except RuntimeError as exc:
+                print(f"[WARN] {exc}")
+
+            if source_dimensions and is_aspect_ratio_mismatch(source_dimensions, aspect_ratio):
+                actual_width, actual_height = source_dimensions
+                suggested_size = suggest_size_for_ratio(aspect_ratio)
+                print(
+                    "[WARN] "
+                    f"Requested aspect ratio {aspect_ratio}, provider returned {actual_width}x{actual_height} "
+                    f"(~{simplify_ratio(actual_width, actual_height)}). "
+                    f"Post-process crop has been applied when possible. "
+                    f"For better quality, try --image-size {suggested_size} or set OPENAI_IMAGE_SIZE={suggested_size}."
+                )
+
         image_path.write_bytes(image_bytes)
         dimensions = parse_image_dimensions(image_bytes)
-
-        if aspect_ratio and dimensions and is_aspect_ratio_mismatch(dimensions, aspect_ratio):
-            actual_width, actual_height = dimensions
-            suggested_size = suggest_size_for_ratio(aspect_ratio)
-            print(
-                "[WARN] "
-                f"Requested aspect ratio {aspect_ratio}, but generated image is {actual_width}x{actual_height} "
-                f"(~{simplify_ratio(actual_width, actual_height)}). "
-                "The current model/provider may ignore aspect_ratio. "
-                f"Try --image-size {suggested_size} or set OPENAI_IMAGE_SIZE={suggested_size}."
-            )
 
         record: dict[str, Any] = {
             "index": index,
@@ -443,6 +502,9 @@ def main() -> int:
             "prompt": item["prompt"],
             "file": str(image_path),
         }
+        if source_dimensions and dimensions and source_dimensions != dimensions:
+            record["source_width"] = source_dimensions[0]
+            record["source_height"] = source_dimensions[1]
         if dimensions:
             record["width"] = dimensions[0]
             record["height"] = dimensions[1]

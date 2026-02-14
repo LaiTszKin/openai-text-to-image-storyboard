@@ -57,6 +57,7 @@ python /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/scripts/ge
 ```
 
 If the provider ignores `aspect_ratio`, pass `--image-size 1024x768` or set `OPENAI_IMAGE_SIZE=1024x768`.
+When an aspect ratio is set, the script also applies center-crop post-processing so output files still match the target ratio.
 
 Use JSON prompt file:
 

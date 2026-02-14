@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-02-14
+
+### Added
+- Added aspect-ratio center-crop post-processing so outputs match the configured ratio even when providers ignore ratio parameters.
+- Added `source_width` and `source_height` metadata in `storyboard.json` when post-processing changes image dimensions.
+
+### Changed
+- Updated docs to clarify ratio-based post-processing behavior and size guidance.
+
 ## [0.1.1] - 2026-02-14
 
 ### Added
