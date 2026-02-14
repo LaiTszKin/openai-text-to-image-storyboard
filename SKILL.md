@@ -1,6 +1,6 @@
 ---
 name: openai-text-to-image-storyboard
-description: Generate storyboard images by using agent-decided prompts and calling an OpenAI-compatible image generation API. Use when users want chapters, novels, articles, or scripts converted into image sets under pictures/{content_name}, with API URL and API key loaded from .env or environment variables.
+description: Generate storyboard images by using agent-decided prompts and calling an OpenAI-compatible image generation API. Use when users want chapters, novels, articles, or scripts converted into image sets under pictures/{content_name}, with API URL and API key loaded from this skill folder's .env by default.
 ---
 
 # OpenAI Text to Image Storyboard
@@ -13,13 +13,23 @@ Always save outputs in `pictures/<content_name>/` (example: `pictures/1_小說�
 ## Workflow
 
 1. Read user text and decide the target scenes in the agent.
-2. Prepare image prompts (`--prompt` multiple times, or `--prompts-file` JSON).
-3. Run the script to generate images through `/images/generations`.
+2. As soon as article/chapter content is available, directly prepare prompts and run the script (do not stop at suggestion-only mode).
+3. Use this skill folder's `.env` first, then call `/images/generations` to render images.
 4. Save files in narrative order and write `storyboard.json`.
+
+## Agent Execution Requirement
+
+- After receiving article/chapter/script content, immediately enter generation flow.
+- Convert content into scene prompts and execute the Python script in the same turn whenever possible.
+- Only ask follow-up questions when mandatory inputs are missing (for example: no output project path or no content name).
 
 ## Environment Configuration
 
-Create `.env` in the target project root (or pass `--env-file`):
+Create `.env` in this skill folder (default path used by script):
+
+- `/Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env`
+
+You can still override via `--env-file` when needed.
 
 - `OPENAI_API_URL` (required)
 - `OPENAI_API_KEY` (required)
@@ -39,6 +49,7 @@ Use direct prompts:
 ```bash
 python /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/scripts/generate_storyboard_images.py \
   --project-dir /path/to/project \
+  --env-file /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env \
   --content-name "1_小說章節名稱" \
   --aspect-ratio 16:9 \
   --prompt "Cinematic night market alley, rain reflections, protagonist with umbrella, neon bokeh" \
@@ -50,6 +61,7 @@ Use JSON prompt file:
 ```bash
 python /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/scripts/generate_storyboard_images.py \
   --project-dir /path/to/project \
+  --env-file /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env \
   --content-name "1_小說章節名稱" \
   --prompts-file /path/to/prompts.json
 ```

@@ -11,6 +11,8 @@ from typing import Any
 from urllib import error, request
 
 INVALID_PATH_CHARS = re.compile(r"[\\/:*?\"<>|]+")
+SKILL_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_ENV_FILE = SKILL_DIR / ".env"
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,8 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-dir", default=".", help="Project root path (default: current directory)")
     parser.add_argument(
         "--env-file",
-        default=".env",
-        help="Environment file path (default: .env under project dir)",
+        default=str(DEFAULT_ENV_FILE),
+        help=f"Environment file path (default: {DEFAULT_ENV_FILE})",
     )
 
     prompt_source = parser.add_mutually_exclusive_group(required=True)
@@ -280,7 +282,7 @@ def main() -> int:
     project_dir = Path(args.project_dir).expanduser().resolve()
     env_file = Path(args.env_file).expanduser()
     if not env_file.is_absolute():
-        env_file = project_dir / env_file
+        env_file = SKILL_DIR / env_file
     load_dotenv_file(env_file, override=False)
 
     api_url = required_env("OPENAI_API_URL", env_file)

@@ -1,4 +1,4 @@
 interface:
   display_name: "OpenAI Text to Image Storyboard"
   short_description: "Generate image sets from agent-decided prompts"
-  default_prompt: "Use $openai-text-to-image-storyboard to decide scene prompts from text, set aspect ratio if needed, then generate images into pictures/{content_name}/ using .env API settings."
+  default_prompt: "Use $openai-text-to-image-storyboard to decide scene prompts from text. As soon as the article/chapter content is available, immediately run the script to generate images into pictures/{content_name}/. Load API settings from /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env by default."
