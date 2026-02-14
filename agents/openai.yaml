@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenAI Text to Image Storyboard"
+  short_description: "Generate image sets from agent-decided prompts"
+  default_prompt: "Use $openai-text-to-image-storyboard to decide scene prompts from text, set aspect ratio if needed, then generate images into pictures/{content_name}/ using .env API settings."
