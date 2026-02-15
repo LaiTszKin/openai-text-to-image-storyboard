@@ -15,6 +15,7 @@ from urllib import error, request
 INVALID_PATH_CHARS = re.compile(r"[\\/:*?\"<>|]+")
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = SKILL_DIR / ".env"
+CHARACTER_SKELETON_FIELDS = ("id", "name", "appearance", "outfit", "description")
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,11 +29,19 @@ def parse_args() -> argparse.Namespace:
         default=str(DEFAULT_ENV_FILE),
         help=f"Environment file path (default: {DEFAULT_ENV_FILE})",
     )
+    parser.add_argument(
+        "--api-url",
+        help="API base URL for /images/generations (or OPENAI_API_URL)",
+    )
+    parser.add_argument(
+        "--api-key",
+        help="API key for /images/generations (or OPENAI_API_KEY)",
+    )
 
     prompt_source = parser.add_mutually_exclusive_group(required=True)
     prompt_source.add_argument(
         "--prompts-file",
-        help="Path to a JSON file containing prompt entries",
+        help="Path to a JSON file containing prompt entries (list mode or structured characters/scenes mode)",
     )
     prompt_source.add_argument(
         "--prompt",
@@ -79,6 +88,21 @@ def required_env(name: str, env_file: Path | None = None) -> str:
         location_hint = f" and {env_file}" if env_file else ""
         raise SystemExit(f"Missing required configuration: {name}. Set it in environment{location_hint}.")
     return value
+
+
+def required_arg_or_env(
+    arg_value: str | None,
+    *,
+    arg_name: str,
+    env_name: str,
+    env_file: Path | None = None,
+) -> str:
+    if arg_value is not None:
+        value = arg_value.strip()
+        if not value:
+            raise SystemExit(f"{arg_name} cannot be empty.")
+        return value
+    return required_env(env_name, env_file)
 
 
 def sanitize_component(name: str, fallback: str) -> str:
@@ -326,16 +350,7 @@ def fetch_binary(url: str) -> bytes:
         return response.read()
 
 
-def parse_prompts_file(prompts_file: Path) -> list[dict[str, str]]:
-    raw = prompts_file.read_text(encoding="utf-8")
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid JSON in {prompts_file}: {exc}") from exc
-
-    if not isinstance(parsed, list):
-        raise SystemExit(f"Invalid prompt file {prompts_file}: top-level JSON must be an array")
-
+def parse_prompt_entries_list(parsed: list[Any], prompts_file: Path) -> list[dict[str, str]]:
     normalized: list[dict[str, str]] = []
     for index, item in enumerate(parsed, start=1):
         if isinstance(item, str):
@@ -358,6 +373,205 @@ def parse_prompts_file(prompts_file: Path) -> list[dict[str, str]]:
         raise SystemExit(f"No prompts found in {prompts_file}")
 
     return normalized
+
+
+def parse_character_profiles(
+    raw_characters: Any,
+    prompts_file: Path,
+) -> dict[str, dict[str, str]]:
+    if raw_characters is None:
+        return {}
+
+    if not isinstance(raw_characters, list):
+        raise SystemExit(
+            f"Invalid character definition in {prompts_file}: 'characters' must be an array when provided"
+        )
+
+    characters: dict[str, dict[str, str]] = {}
+    for index, item in enumerate(raw_characters, start=1):
+        if not isinstance(item, dict):
+            raise SystemExit(
+                f"Invalid character definition in {prompts_file} at characters[{index - 1}]: expected object"
+            )
+
+        profile = {field: str(item.get(field, "")).strip() for field in CHARACTER_SKELETON_FIELDS}
+        missing = [field for field in ("id", "name", "appearance", "outfit", "description") if not profile[field]]
+        if missing:
+            joined = ", ".join(missing)
+            raise SystemExit(
+                f"Invalid character definition in {prompts_file} at characters[{index - 1}]: "
+                f"missing required fields: {joined}"
+            )
+
+        character_id = profile["id"]
+        if character_id in characters:
+            raise SystemExit(
+                f"Invalid character definition in {prompts_file}: duplicate character id '{character_id}'"
+            )
+        characters[character_id] = profile
+
+    return characters
+
+
+def parse_scene_character_ids(
+    raw_character_ids: Any,
+    prompts_file: Path,
+    scene_index: int,
+) -> list[str]:
+    if raw_character_ids is None:
+        return []
+    if not isinstance(raw_character_ids, list):
+        raise SystemExit(
+            f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: "
+            "'character_ids' must be an array when provided"
+        )
+
+    character_ids: list[str] = []
+    for idx, raw_id in enumerate(raw_character_ids, start=1):
+        character_id = str(raw_id).strip()
+        if not character_id:
+            raise SystemExit(
+                f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: "
+                f"character_ids[{idx - 1}] cannot be empty"
+            )
+        if character_id in character_ids:
+            raise SystemExit(
+                f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: "
+                f"duplicate character id '{character_id}' in character_ids"
+            )
+        character_ids.append(character_id)
+    return character_ids
+
+
+def build_scene_json_prompt(
+    scene: dict[str, Any],
+    scene_index: int,
+    prompts_file: Path,
+    character_profiles: dict[str, dict[str, str]],
+) -> dict[str, str]:
+    title = str(scene.get("title") or f"scene-{scene_index}").strip() or f"scene-{scene_index}"
+    description = str(scene.get("description", "")).strip()
+    if not description:
+        raise SystemExit(
+            f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: 'description' is required"
+        )
+
+    character_ids = parse_scene_character_ids(scene.get("character_ids"), prompts_file, scene_index)
+    raw_character_descriptions = scene.get("character_descriptions")
+    if raw_character_descriptions is None:
+        raw_character_descriptions = {}
+    if not isinstance(raw_character_descriptions, dict):
+        raise SystemExit(
+            f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: "
+            "'character_descriptions' must be an object when provided"
+        )
+
+    normalized_description_overrides = {
+        str(key).strip(): str(value).strip()
+        for key, value in raw_character_descriptions.items()
+        if str(key).strip()
+    }
+
+    unknown_override_ids = sorted(set(normalized_description_overrides.keys()) - set(character_ids))
+    if unknown_override_ids:
+        joined = ", ".join(unknown_override_ids)
+        raise SystemExit(
+            f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: "
+            f"'character_descriptions' has ids not listed in character_ids: {joined}"
+        )
+
+    scene_characters: list[dict[str, str]] = []
+    for character_id in character_ids:
+        profile = character_profiles.get(character_id)
+        if not profile:
+            raise SystemExit(
+                f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: "
+                f"character id '{character_id}' is not defined in top-level 'characters'"
+            )
+
+        character_prompt = dict(profile)
+        if character_id in normalized_description_overrides:
+            description_override = normalized_description_overrides[character_id]
+            if not description_override:
+                raise SystemExit(
+                    f"Invalid scene in {prompts_file} at scenes[{scene_index - 1}]: "
+                    f"character_descriptions['{character_id}'] cannot be empty"
+                )
+            character_prompt["description"] = description_override
+        scene_characters.append(character_prompt)
+
+    prompt_payload: dict[str, Any] = {
+        "scene_title": title,
+        "description": description,
+    }
+    if scene_characters:
+        prompt_payload["characters"] = scene_characters
+
+    style = scene.get("style")
+    if style is not None:
+        style_text = str(style).strip()
+        if style_text:
+            prompt_payload["style"] = style_text
+
+    camera = scene.get("camera")
+    if camera is not None:
+        camera_text = str(camera).strip()
+        if camera_text:
+            prompt_payload["camera"] = camera_text
+
+    lighting = scene.get("lighting")
+    if lighting is not None:
+        lighting_text = str(lighting).strip()
+        if lighting_text:
+            prompt_payload["lighting"] = lighting_text
+
+    prompt = json.dumps(prompt_payload, ensure_ascii=False, separators=(",", ":"))
+    return {"title": title, "prompt": prompt}
+
+
+def parse_structured_prompts_file(parsed: dict[str, Any], prompts_file: Path) -> list[dict[str, str]]:
+    scenes = parsed.get("scenes")
+    if not isinstance(scenes, list):
+        raise SystemExit(
+            f"Invalid prompt file {prompts_file}: object mode requires a top-level 'scenes' array"
+        )
+    if not scenes:
+        raise SystemExit(f"Invalid prompt file {prompts_file}: 'scenes' cannot be empty")
+
+    character_profiles = parse_character_profiles(parsed.get("characters"), prompts_file)
+    normalized: list[dict[str, str]] = []
+    for index, scene in enumerate(scenes, start=1):
+        if not isinstance(scene, dict):
+            raise SystemExit(
+                f"Invalid scene in {prompts_file} at scenes[{index - 1}]: expected object"
+            )
+        normalized.append(
+            build_scene_json_prompt(
+                scene=scene,
+                scene_index=index,
+                prompts_file=prompts_file,
+                character_profiles=character_profiles,
+            )
+        )
+
+    return normalized
+
+
+def parse_prompts_file(prompts_file: Path) -> list[dict[str, str]]:
+    raw = prompts_file.read_text(encoding="utf-8")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON in {prompts_file}: {exc}") from exc
+
+    if isinstance(parsed, list):
+        return parse_prompt_entries_list(parsed, prompts_file)
+    if isinstance(parsed, dict):
+        return parse_structured_prompts_file(parsed, prompts_file)
+
+    raise SystemExit(
+        f"Invalid prompt file {prompts_file}: top-level JSON must be an array or an object"
+    )
 
 
 def build_prompt_items(prompts_file: str | None, prompt_values: list[str] | None) -> list[dict[str, str]]:
@@ -429,10 +643,25 @@ def main() -> int:
         env_file = SKILL_DIR / env_file
     load_dotenv_file(env_file, override=False)
 
-    api_url = required_env("OPENAI_API_URL", env_file)
-    api_key = required_env("OPENAI_API_KEY", env_file)
+    api_url = required_arg_or_env(
+        args.api_url,
+        arg_name="--api-url",
+        env_name="OPENAI_API_URL",
+        env_file=env_file,
+    )
+    api_key = required_arg_or_env(
+        args.api_key,
+        arg_name="--api-key",
+        env_name="OPENAI_API_KEY",
+        env_file=env_file,
+    )
 
-    image_model = args.image_model or os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
+    if args.image_model is not None:
+        image_model = args.image_model.strip()
+        if not image_model:
+            raise SystemExit("--image-model cannot be empty.")
+    else:
+        image_model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
     aspect_ratio = normalize_aspect_ratio(
         args.aspect_ratio
         if args.aspect_ratio is not None

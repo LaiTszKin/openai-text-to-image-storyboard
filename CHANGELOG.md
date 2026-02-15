@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-02-15
+
+### Added
+- Added structured `--prompts-file` object mode with top-level `characters` and `scenes` for recurring character consistency.
+- Added per-scene character description overrides (`character_descriptions`) that only replace the `description` field while keeping a stable character skeleton.
+- Added support for multi-character scene composition by injecting multiple character skeletons in one generated scene prompt.
+
+### Changed
+- Updated skill docs, README, and default agent prompt to require character JSON skeleton workflow for recurring novel characters.
+- CLI values now take precedence over environment variables, including `--api-url` and `--api-key` overrides for API credentials.
+
 ## [0.2.0] - 2026-02-14
 
 ### Added
