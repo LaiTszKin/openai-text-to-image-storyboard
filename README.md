@@ -8,15 +8,14 @@
 
 - 一旦取得文章/章節內容，應立即依內容拆分場景並執行腳本生成圖片。
 - 除非缺少必要參數（例如輸出專案路徑、content name），否則不要停在純建議模式。
-- 若角色在文本中重複出現，先建立角色 JSON 骨架（`id/name/appearance/outfit/description`），之後每個相關場景都沿用相同骨架，只改 `description`。
-- 多角色場景需同時傳入多個角色骨架，並分別更新各角色在該場景的 `description`。
+- 一律使用 `--prompts-file` 傳入 JSON prompt 檔案。
+- `roles.json` 與角色定義格式請在 `video-production` 或 `novel-to-short-video` 技能中定義，不在本技能重複說明。
 
 ## 功能
 
 - 預設讀取 skill 資料夾下的 `.env`（可用 `--env-file` 覆蓋）
 - 所有 CLI 參數優先於環境變數（含 `--api-url`、`--api-key`）
-- 支援 `--prompt` 多次輸入，或用 `--prompts-file` 一次讀取 JSON
-- `--prompts-file` 支援「角色 + 場景」結構化 JSON，便於小說多角色一致性出圖
+- 使用 `--prompts-file` 一次讀取 JSON prompt
 - 圖片按順序輸出為 `01_*.png`, `02_*.png`, ...
 - 產生 `storyboard.json` 保存輸入與輸出紀錄
 - 已有同名檔案時自動加上 `_2`, `_3` 避免覆寫
@@ -53,18 +52,7 @@ OPENAI_IMAGE_MODEL=gpt-image-1
 > 若供應商忽略 `aspect_ratio`，可改用 `OPENAI_IMAGE_SIZE`（例如 `1024x768`）。  
 > 腳本預設會讀取 `/Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env`。
 
-3. 執行（直接傳入多個 prompt）
-
-```bash
-python scripts/generate_storyboard_images.py \
-  --project-dir /path/to/project \
-  --env-file /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env \
-  --content-name "1_小說章節名稱" \
-  --prompt "cinematic rain-soaked alley, tense running pose, blue neon reflections, dramatic rim light" \
-  --prompt "ancient underground library, floating dust in warm volumetric light, mysterious atmosphere"
-```
-
-4. 或使用 JSON prompt 檔
+3. 使用 JSON prompt 檔執行
 
 ```bash
 python scripts/generate_storyboard_images.py \
@@ -89,56 +77,7 @@ python scripts/generate_storyboard_images.py \
 ]
 ```
 
-小說多角色建議格式（角色骨架一致化）：
-
-```json
-{
-  "characters": [
-    {
-      "id": "lin_xia",
-      "name": "Lin Xia",
-      "appearance": "short black hair, amber eyes, slim build",
-      "outfit": "dark trench coat, silver pendant, leather boots",
-      "description": "standing calmly, observant expression"
-    },
-    {
-      "id": "chen_yu",
-      "name": "Chen Yu",
-      "appearance": "wavy brown hair, tall, sharp jawline",
-      "outfit": "navy suit with loosened tie, long overcoat",
-      "description": "alert posture, slightly tense"
-    }
-  ],
-  "scenes": [
-    {
-      "title": "Rain Alley Encounter",
-      "description": "night alley with neon reflections and light rain",
-      "character_ids": ["lin_xia", "chen_yu"],
-      "character_descriptions": {
-        "lin_xia": "holding a black umbrella, wary gaze",
-        "chen_yu": "half-turned to check behind him, breathing fast"
-      },
-      "camera": "medium shot, slight low angle",
-      "lighting": "blue-magenta neon rim light"
-    },
-    {
-      "title": "Library Clue",
-      "description": "dusty old library at dawn, warm shafts of light",
-      "character_ids": ["lin_xia"],
-      "character_descriptions": {
-        "lin_xia": "opening a hidden compartment in a bookcase"
-      }
-    }
-  ]
-}
-```
-
-結構化 JSON 規則：
-
-- `characters`：定義可重用角色骨架（欄位固定為 `id/name/appearance/outfit/description`）。
-- `scenes[*].character_ids`：指定該場景使用哪些角色骨架。
-- `scenes[*].character_descriptions`：只覆寫該場景的 `description`，其餘欄位沿用骨架。
-- 可選欄位：`style`、`camera`、`lighting`。
+若需要多角色/角色延續的 `roles.json` 與結構化 JSON 規格，請參考 `video-production` 或 `novel-to-short-video` 技能文件。
 
 ## 參數重點
 

@@ -13,8 +13,8 @@ Always save outputs in `pictures/<content_name>/` (example: `pictures/1_小說�
 ## Workflow
 
 1. Read user text and decide the target scenes in the agent.
-2. If characters repeat across scenes (typical in novels), define recurring characters once with JSON skeletons before generation.
-3. As soon as article/chapter content is available, directly prepare prompts and run the script (do not stop at suggestion-only mode).
+2. Convert scene prompts into a JSON prompt file (`prompts.json`).
+3. As soon as article/chapter content is available, directly run the script (do not stop at suggestion-only mode).
 4. Use this skill folder's `.env` first, then call `/images/generations` to render images.
 5. Save files in narrative order and write `storyboard.json`.
 
@@ -23,8 +23,8 @@ Always save outputs in `pictures/<content_name>/` (example: `pictures/1_小說�
 - After receiving article/chapter/script content, immediately enter generation flow.
 - Convert content into scene prompts and execute the Python script in the same turn whenever possible.
 - Only ask follow-up questions when mandatory inputs are missing (for example: no output project path or no content name).
-- For recurring characters, always send the same character JSON skeleton (`id/name/appearance/outfit/description`) in every relevant scene prompt and only update `description`.
-- For multi-character scenes, include all involved character skeletons in the same `characters` array and update each character's `description` independently.
+- Always provide prompts through `--prompts-file` with valid JSON.
+- Do not define `roles.json` schema in this skill; role schema details belong to `video-production` or `novel-to-short-video`.
 
 ## Environment Configuration
 
@@ -48,21 +48,6 @@ A template is provided at:
 - `/Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env.example`
 
 ## Command
-
-Use direct prompts:
-
-```bash
-python /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/scripts/generate_storyboard_images.py \
-  --project-dir /path/to/project \
-  --env-file /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/.env \
-  --content-name "1_小說章節名稱" \
-  --prompt "Cinematic night market alley, rain reflections, protagonist with umbrella, neon bokeh" \
-  --prompt "Old library at dawn, warm dust particles, heroine opening a hidden book compartment"
-```
-
-If the provider ignores `aspect_ratio`, pass `--image-size 1024x768` or set `OPENAI_IMAGE_SIZE=1024x768`.
-You can also pass `--api-url` and `--api-key` to override `OPENAI_API_URL` and `OPENAI_API_KEY`.
-When an aspect ratio is set, the script also applies center-crop post-processing so output files still match the target ratio.
 
 Use JSON prompt file:
 
@@ -89,56 +74,13 @@ python /Users/tszkinlai/.codex/skills/openai-text-to-image-storyboard/scripts/ge
 ]
 ```
 
-Structured `prompts.json` format for recurring characters (recommended for novels):
+Notes:
 
-```json
-{
-  "characters": [
-    {
-      "id": "lin_xia",
-      "name": "Lin Xia",
-      "appearance": "short black hair, amber eyes, slim build",
-      "outfit": "dark trench coat, silver pendant, leather boots",
-      "description": "standing calmly, observant expression"
-    },
-    {
-      "id": "chen_yu",
-      "name": "Chen Yu",
-      "appearance": "wavy brown hair, tall, sharp jawline",
-      "outfit": "navy suit with loosened tie, long overcoat",
-      "description": "alert posture, slightly tense"
-    }
-  ],
-  "scenes": [
-    {
-      "title": "Rain Alley Encounter",
-      "description": "night alley with neon reflections and light rain",
-      "character_ids": ["lin_xia", "chen_yu"],
-      "character_descriptions": {
-        "lin_xia": "holding a black umbrella, wary gaze",
-        "chen_yu": "half-turned to check behind him, breathing fast"
-      },
-      "camera": "medium shot, slight low angle",
-      "lighting": "blue-magenta neon rim light"
-    },
-    {
-      "title": "Library Clue",
-      "description": "dusty old library at dawn, warm shafts of light",
-      "character_ids": ["lin_xia"],
-      "character_descriptions": {
-        "lin_xia": "opening a hidden compartment in a bookcase"
-      }
-    }
-  ]
-}
-```
-
-Notes for structured mode:
-
-- Top-level `characters` defines reusable character skeletons.
-- Each scene lists `character_ids`; the script injects the same skeleton every time and only overrides `description` via `character_descriptions`.
-- `camera`, `lighting`, and `style` are optional scene keys.
-- This format supports multiple recurring characters and keeps cross-scene visual consistency.
+- `prompts.json` must be valid JSON.
+- For role-related schema (`roles.json` and recurring-role definitions), follow `video-production` or `novel-to-short-video`.
+- If the provider ignores `aspect_ratio`, pass `--image-size 1024x768` or set `OPENAI_IMAGE_SIZE=1024x768`.
+- You can pass `--api-url` and `--api-key` to override `OPENAI_API_URL` and `OPENAI_API_KEY`.
+- When an aspect ratio is set, the script applies center-crop post-processing so outputs still match the target ratio.
 
 ## Output Convention
 
